@@ -3,6 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { json } = require('express');
 
+
 // Setup multer storage to handle images
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -97,41 +98,57 @@ exports.addProject = [upload.array('images'), (req, res) => {
 
 
 
+const { format } = require('date-fns');  // Import format from date-fns
+
 exports.getProjects = (req, res) => {
-  const query = `
-      SELECT p.*, u.username AS assigned_user
-      FROM projects p
-      LEFT JOIN users u ON u.id = p.assigned_user
-      LEFT JOIN project_images pi ON pi.project_id = p.id
-  `;
+    const query = `
+        SELECT p.*, u.username AS assigned_user, pi.image
+        FROM projects p
+        LEFT JOIN users u ON u.id = p.assigned_user
+        LEFT JOIN project_images pi ON pi.project_id = p.id
+    `;
+    
+    db.query(query, (err, projects) => {
+        if (err) {
+            console.error('Error fetching projects:', err);
+            return res.status(500).json({ message: 'Error fetching projects' });
+        }
   
-  db.query(query, (err, projects) => {
-      if (err) {
-          console.error('Error fetching projects:', err);
-          return res.status(500).json({ message: 'Error fetching projects' });
-      }
-
-      // Group the images by project_id
-      const projectMap = {};
-
-      projects.forEach((project) => {
-          const { project_id, image, ...rest } = project;
-
-          if (!projectMap[project_id]) {
-              projectMap[project_id] = { ...rest, images: [] };
-          }
-
-          if (image) {
-              projectMap[project_id].images.push(`data:image/jpeg;base64,${image.toString('base64')}`);
-          }
-      });
-
-      // Convert projectMap to an array of project objects
-      const resultProjects = Object.values(projectMap);
-
-      res.status(200).json(resultProjects);
-  });
+        // Group the images by project_id and avoid overwriting project data
+        const projectMap = {};
+  
+        projects.forEach((project) => {
+            const { id, image, assigned_user, project_name, description, status, start_date, end_date, budget, location } = project;
+  
+            // If the project doesn't exist in the map, create a new entry
+            if (!projectMap[id]) {
+                projectMap[id] = {
+                    id,
+                    project_name,
+                    description,
+                    status,
+                    start_date: format(new Date(start_date), 'MM/dd/yyyy'), // Format start_date
+                    end_date: format(new Date(end_date), 'MM/dd/yyyy'), // Format end_date
+                    budget,
+                    location,
+                    assigned_user,
+                    images: []
+                };
+            }
+  
+            // If there's an image, push it into the images array
+            if (image) {
+                projectMap[id].images.push(`data:image/jpeg;base64,${image.toString('base64')}`);
+            }
+        });
+  
+        // Convert projectMap to an array of projects
+        const resultProjects = Object.values(projectMap);
+  
+        res.status(200).json(resultProjects);
+    });
 };
+  
 
 // 3. Update Project Progress or Status (and optionally upload new image)
 exports.updateProjectProgress = [upload.array('images'), (req, res) => {
@@ -205,4 +222,33 @@ exports.getUsersByRole = (req, res) => {
     }
     res.status(200).json(results);  // Send the result (users with their user_id and username)
   });
+};
+// 6. Get Images Linked to a Project
+exports.getProjectImages = (req, res) => {
+    const { project_id } = req.params;  // Retrieve project_id from the URL parameter
+
+    const query = `
+        SELECT image
+        FROM project_images
+        WHERE project_id = ?
+    `;
+    
+    db.query(query, [project_id], (err, results) => {
+        if (err) {
+            console.error('Error fetching images:', err);
+            return res.status(500).json({ message: 'Error fetching images' });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ message: 'No images found for this project' });
+        }
+
+        // Convert each image from Blob to Base64
+        const imagesBase64 = results.map(imageRow => {
+            return `data:image/jpeg;base64,${imageRow.image.toString('base64')}`;
+        });
+
+        // Return the list of images
+        res.status(200).json({ images: imagesBase64 });
+    });
 };
