@@ -252,3 +252,113 @@ exports.getProjectImages = (req, res) => {
         res.status(200).json({ images: imagesBase64 });
     });
 };
+
+exports.getPublicProjectStatus = (req, res) => {
+    const { project_id } = req.params;
+
+    const query = `
+        SELECT p.id, p.project_name, p.description, p.status, 
+               p.start_date, p.end_date, p.budget, p.location,
+               u.username AS assigned_user,
+               pi.image 
+        FROM projects p
+        LEFT JOIN users u ON u.id = p.assigned_user
+        LEFT JOIN project_images pi ON pi.project_id = p.id
+        WHERE p.id = ?
+    `;
+
+    db.query(query, [project_id], (err, results) => {
+        if (err) {
+            console.error('Error fetching project status:', err);
+            return res.status(500).json({ message: 'Error fetching project status' });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        // Group images under the project
+        const project = {
+            id: results[0].id,
+            project_name: results[0].project_name,
+            description: results[0].description,
+            status: results[0].status,
+            start_date: results[0].start_date,
+            end_date: results[0].end_date,
+            budget: results[0].budget,
+            location: results[0].location,
+            assigned_user: results[0].assigned_user,
+            images: results.map(row => row.image ? `data:image/jpeg;base64,${row.image.toString('base64')}` : null).filter(img => img !== null)
+        };
+
+        res.status(200).json(project);
+    });
+};
+
+exports.updateProjectDetails = (req, res) => {
+    const { project_id } = req.params;
+    const { project_name, description, status, start_date, end_date, budget, location, assigned_user } = req.body;
+    const imageBlobs = req.files ? req.files.map(file => file.buffer) : null;
+
+    console.log(`Updating project ID: ${project_id}`);
+
+    if (!project_id) {
+        return res.status(400).json({ message: "Project ID is required" });
+    }
+
+    const updateQuery = `
+        UPDATE projects 
+        SET project_name = ?, description = ?, status = ?, start_date = ?, 
+            end_date = ?, budget = ?, location = ?, assigned_user = ? 
+        WHERE id = ?
+    `;
+
+    const updateValues = [project_name, description, status, start_date, end_date, budget, location, assigned_user, project_id];
+
+    db.query(updateQuery, updateValues, (err, result) => {
+        if (err) {
+            console.error("Error updating project:", err);
+            return res.status(500).json({ message: "Error updating project details" });
+        }
+
+        console.log(`Project ${project_id} updated successfully`);
+
+        // If images were uploaded, update images table
+        if (imageBlobs && imageBlobs.length > 0) {
+            console.log(`Updating images for project ID: ${project_id}`);
+            const deleteOldImagesQuery = `DELETE FROM project_images WHERE project_id = ?`;
+
+            db.query(deleteOldImagesQuery, [project_id], (deleteErr) => {
+                if (deleteErr) {
+                    console.error("Error deleting old images:", deleteErr);
+                    return res.status(500).json({ message: "Error updating images" });
+                }
+
+                // Insert new images
+                const imageQueries = imageBlobs.map((imageBlob) => {
+                    return new Promise((resolve, reject) => {
+                        const insertImageQuery = `
+                            INSERT INTO project_images (project_id, image) VALUES (?, ?)
+                        `;
+                        db.query(insertImageQuery, [project_id, imageBlob], (insertErr) => {
+                            if (insertErr) reject(insertErr);
+                            resolve();
+                        });
+                    });
+                });
+
+                Promise.all(imageQueries)
+                    .then(() => {
+                        console.log(`Images updated successfully for project ID: ${project_id}`);
+                        res.status(200).json({ message: "Project updated successfully, including images" });
+                    })
+                    .catch((insertErr) => {
+                        console.error("Error inserting images:", insertErr);
+                        res.status(500).json({ message: "Error updating project images" });
+                    });
+            });
+        } else {
+            res.status(200).json({ message: "Project updated successfully" });
+        }
+    });
+};

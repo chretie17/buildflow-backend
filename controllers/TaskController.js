@@ -1,5 +1,6 @@
 const db = require('../db');  // Assuming you've set up MySQL connection
 const { validationResult } = require('express-validator');
+const { utcToZonedTime } = require('date-fns-tz');
 
 
 // Create a new task
@@ -46,21 +47,18 @@ exports.getTasks = (req, res) => {
       return res.status(500).json({ message: 'Error fetching tasks' });
     }
 
-    // Reformat dates to match the local database values
-    const formattedResults = results.map((task) => ({
-      ...task,
-      start_date: task.start_date
-        ? format(new Date(task.start_date), "yyyy-MM-dd'T'HH:mm")
-        : '',
-      end_date: task.end_date
-        ? format(new Date(task.end_date), "yyyy-MM-dd'T'HH:mm")
-        : '',
-    }));
+    // Format the start_date and end_date using date-fns without timezones
+    const formattedResults = results.map((task) => {
+      return {
+        ...task,
+        start_date: task.start_date ? format(new Date(task.start_date), 'yyyy-MM-dd HH:mm:ss') : '',
+        end_date: task.end_date ? format(new Date(task.end_date), 'yyyy-MM-dd HH:mm:ss') : '',
+      };
+    });
 
     res.status(200).json(formattedResults);
   });
 };
-
   
 exports.getTaskById = (req, res) => {
   const { taskId } = req.params;
@@ -128,37 +126,46 @@ exports.deleteTask = (req, res) => {
 };
 
   // Get tasks assigned to a specific user
-exports.getAssignedTasks = (req, res) => {
-  const { userId } = req.params; // Get userId from the request parameters
-
-  console.log(`Fetching tasks assigned to user ID: ${userId}...`);
-
-  const query = `
-    SELECT t.*, 
-      u1.username AS created_by_username,
-      u2.username AS assigned_user_username
-    FROM tasks t
-    LEFT JOIN users u1 ON t.created_by = u1.id
-    LEFT JOIN users u2 ON t.assigned_user = u2.id
-    WHERE t.assigned_user = ?
-  `;
-
-  db.query(query, [userId], (err, result) => {
-    if (err) {
-      console.error('Error fetching assigned tasks:', err);
-      return res.status(500).json({ message: 'Error fetching assigned tasks' });
-    }
-
-    if (result.length === 0) {
-      console.log('No tasks found for the assigned user.');
-      return res.status(404).json({ message: 'No tasks found for this user' });
-    }
-
-    console.log(`Assigned tasks fetched successfully for user ID ${userId}:`, result);
-    res.status(200).json(result);
-  });
-};
-// Update task status by assigned user
+  exports.getAssignedTasks = (req, res) => {
+    const { userId } = req.params; // Get userId from the request parameters
+  
+    console.log(`Fetching tasks assigned to user ID: ${userId}...`);
+  
+    const query = `
+      SELECT t.*, 
+        u1.username AS created_by_username,
+        u2.username AS assigned_user_username
+      FROM tasks t
+      LEFT JOIN users u1 ON t.created_by = u1.id
+      LEFT JOIN users u2 ON t.assigned_user = u2.id
+      WHERE t.assigned_user = ?
+    `;
+  
+    db.query(query, [userId], (err, result) => {
+      if (err) {
+        console.error('Error fetching assigned tasks:', err);
+        return res.status(500).json({ message: 'Error fetching assigned tasks' });
+      }
+  
+      if (result.length === 0) {
+        console.log('No tasks found for the assigned user.');
+        return res.status(404).json({ message: 'No tasks found for this user' });
+      }
+  
+      // Format the start_date and end_date using date-fns before sending the response
+      const formattedResults = result.map((task) => {
+        return {
+          ...task,
+          start_date: task.start_date ? format(new Date(task.start_date), 'yyyy-MM-dd HH:mm:ss') : null,
+          end_date: task.end_date ? format(new Date(task.end_date), 'yyyy-MM-dd HH:mm:ss') : null,
+        };
+      });
+  
+      console.log(`Assigned tasks fetched successfully for user ID ${userId}:`, formattedResults);
+      res.status(200).json(formattedResults);
+    });
+  };
+  // Update task status by assigned user
 exports.updateTaskStatus = (req, res) => {
   const { taskId } = req.params; // Task ID from URL
   const { status } = req.body; // New status from request body
