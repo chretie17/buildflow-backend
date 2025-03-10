@@ -1,19 +1,19 @@
 const express = require('express');
 const router = express.Router();
-const reportController = require('../controllers/ReportController');
+const reportController = require('../controllers/reportController');
+const taskReportController = require('../controllers/taskReportController'); // Import the new controller
 
-// Route to get project overview with date range support
+// Existing report routes
 router.get('/project-overview', reportController.getProjectOverview);
-
-// Route to get project budgets with date range support
-
-// Route to get user performance with date range support
 router.get('/user-performance', reportController.getUserPerformance);
-
-// Route to get project status with date range support
 router.get('/project-status', reportController.getProjectStatus);
-
-// Route to get recent project updates with date range support
 router.get('/recent-updates', reportController.getRecentProjectUpdates);
+
+// New task report routes
+router.get('/tasks', taskReportController.getTasks);
+router.get('/task-status-summary', taskReportController.getTaskStatusSummary);
+router.get('/task-completion-trend', taskReportController.getTaskCompletionTrend);
+router.get('/tasks-by-priority', taskReportController.getTasksByPriority);
+router.get('/overdue-tasks', taskReportController.getOverdueTasks);
 
 module.exports = router;
